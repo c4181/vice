@@ -110,8 +110,10 @@ func DrawPanes(pane Pane, p platform.Platform, r renderer.Renderer,
 	commandBuffer.ClearRGB(renderer.RGB{})
 
 	var keyboard *platform.KeyboardState
+	var vcsStarsKeyboard *platform.KeyboardState
 	if !imgui.CurrentIO().WantCaptureKeyboard() {
 		keyboard = p.GetKeyboard()
+		vcsStarsKeyboard = p.GetVcsStarsKeyboard()
 	}
 
 	haveFocus := pane == wm.focus.Current() && !imgui.CurrentIO().WantCaptureKeyboard()
@@ -124,6 +126,7 @@ func DrawPanes(pane Pane, p platform.Platform, r renderer.Renderer,
 		DPIScale:           p.DPIScale(),
 		Renderer:           r,
 		Keyboard:           keyboard,
+		VcsStarsKeyboard:   vcsStarsKeyboard,
 		HaveFocus:          haveFocus,
 		Now:                time.Now(),
 		Lg:                 lg,

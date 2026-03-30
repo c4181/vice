@@ -131,12 +131,13 @@ type Context struct {
 	// pixel-wide lines and the like.
 	DPIScale float32
 
-	Renderer  renderer.Renderer
-	Mouse     *platform.MouseState
-	Keyboard  *platform.KeyboardState
-	HaveFocus bool
-	Now       time.Time
-	Lg        *log.Logger
+	Renderer         renderer.Renderer
+	Mouse            *platform.MouseState
+	Keyboard         *platform.KeyboardState
+	VcsStarsKeyboard *platform.KeyboardState
+	HaveFocus        bool
+	Now              time.Time
+	Lg               *log.Logger
 
 	MenuBarHeight float32
 

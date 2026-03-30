@@ -243,202 +243,212 @@ func (sp *STARSPane) processKeyboardInput(ctx *panes.Context) {
 	ps := sp.currentPrefs()
 
 	for key := range ctx.Keyboard.Pressed {
-		switch key {
-		case imgui.KeyBackspace:
-			if len(sp.previewAreaInput) > 0 {
-				// We need to be careful to deal with UTF8 for the triangle...
-				r := []rune(sp.previewAreaInput)
-				sp.previewAreaInput = string(r[:len(r)-1])
+		sp.handlePressedKeys(ctx, key, ps)
+	}
+	for key := range ctx.VcsStarsKeyboard.Pressed {
+		if key == imgui.KeyGraveAccent {
+			sp.previewAreaInput += STARSTriangleCharacter
+		}
+		sp.handlePressedKeys(ctx, key, ps)
+	}
+}
+
+func (sp *STARSPane) handlePressedKeys(ctx *panes.Context, key imgui.Key, ps *Preferences) {
+	switch key {
+	case imgui.KeyBackspace:
+		if len(sp.previewAreaInput) > 0 {
+			// We need to be careful to deal with UTF8 for the triangle...
+			r := []rune(sp.previewAreaInput)
+			sp.previewAreaInput = string(r[:len(r)-1])
+		} else {
+			sp.multiFuncPrefix = ""
+		}
+		if n := len(sp.drawRoutePoints); n > 0 {
+			sp.drawRoutePoints = sp.drawRoutePoints[:n-1]
+		}
+
+	case imgui.KeyEnd:
+		sp.setCommandMode(ctx, CommandModeMin)
+
+	case imgui.KeyEnter:
+		var status CommandStatus
+		var err error
+
+		// If there's an active spinner, it gets keyboard input first.
+		if sp.activeSpinner != nil {
+			mode, inputErr := sp.activeSpinner.KeyboardInput(sp.previewAreaInput)
+			if inputErr != nil {
+				err = inputErr
 			} else {
-				sp.multiFuncPrefix = ""
+				sp.setCommandMode(ctx, mode)
 			}
-			if n := len(sp.drawRoutePoints); n > 0 {
-				sp.drawRoutePoints = sp.drawRoutePoints[:n-1]
+		} else if len(sp.transientCommandHandlers) > 0 {
+			// Check if transient command handlers should intercept this input
+			status, err = sp.executeTransientCommandHandlers(ctx, sp.previewAreaInput,
+				nil, false, [2]float32{}, nil, radar.ScopeTransformations{})
+		} else if s, e, matched := sp.tryExecuteMacro(ctx, sp.previewAreaInput, false,
+			[2]float32{}, nil, radar.ScopeTransformations{}); matched {
+			status, err = s, e
+		} else {
+			status, err = sp.executeSTARSCommand(ctx, sp.previewAreaInput)
+		}
+
+		if err != nil {
+			sp.displayError(err, ctx, "")
+		} else {
+			// Install any new command handlers from the command result
+			if len(status.CommandHandlers) > 0 {
+				sp.transientCommandHandlers = status.CommandHandlers
 			}
 
-		case imgui.KeyEnd:
-			sp.setCommandMode(ctx, CommandModeMin)
-
-		case imgui.KeyEnter:
-			var status CommandStatus
-			var err error
-
-			// If there's an active spinner, it gets keyboard input first.
-			if sp.activeSpinner != nil {
-				mode, inputErr := sp.activeSpinner.KeyboardInput(sp.previewAreaInput)
-				if inputErr != nil {
-					err = inputErr
+			switch status.Clear {
+			case ClearAll:
+				if sp.commandMode != CommandModeTargetGenLock {
+					sp.setCommandMode(ctx, CommandModeNone)
+					sp.maybeAutoHomeCursor(ctx)
 				} else {
-					sp.setCommandMode(ctx, mode)
-				}
-			} else if len(sp.transientCommandHandlers) > 0 {
-				// Check if transient command handlers should intercept this input
-				status, err = sp.executeTransientCommandHandlers(ctx, sp.previewAreaInput,
-					nil, false, [2]float32{}, nil, radar.ScopeTransformations{})
-			} else if s, e, matched := sp.tryExecuteMacro(ctx, sp.previewAreaInput, false,
-				[2]float32{}, nil, radar.ScopeTransformations{}); matched {
-				status, err = s, e
-			} else {
-				status, err = sp.executeSTARSCommand(ctx, sp.previewAreaInput)
-			}
-
-			if err != nil {
-				sp.displayError(err, ctx, "")
-			} else {
-				// Install any new command handlers from the command result
-				if len(status.CommandHandlers) > 0 {
-					sp.transientCommandHandlers = status.CommandHandlers
-				}
-
-				switch status.Clear {
-				case ClearAll:
-					if sp.commandMode != CommandModeTargetGenLock {
-						sp.setCommandMode(ctx, CommandModeNone)
-						sp.maybeAutoHomeCursor(ctx)
-					} else {
-						sp.previewAreaInput = ""
-					}
-				case ClearInput:
 					sp.previewAreaInput = ""
-				case ClearNone:
-					// Don't clear anything
 				}
-				sp.previewAreaOutput = status.Output
+			case ClearInput:
+				sp.previewAreaInput = ""
+			case ClearNone:
+				// Don't clear anything
 			}
+			sp.previewAreaOutput = status.Output
+		}
 
-		case imgui.KeyEscape:
-			sp.movingList = ""
-			if sp.activeSpinner != nil {
-				sp.setCommandMode(ctx, sp.activeSpinner.ModeAfter())
-			} else {
-				sp.setCommandMode(ctx, CommandModeNone)
-			}
+	case imgui.KeyEscape:
+		sp.movingList = ""
+		if sp.activeSpinner != nil {
+			sp.setCommandMode(ctx, sp.activeSpinner.ModeAfter())
+		} else {
+			sp.setCommandMode(ctx, CommandModeNone)
+		}
 
-		case imgui.KeyF1:
-			if ctx.Keyboard.KeyControl() {
-				// Beaconator; handled elsewhere
-			} else if ctx.Keyboard.KeyShift() { // F13
-				sp.setCommandMode(ctx, CommandModeReleaseDeparture)
-			} else { // INIT CNTL
-				sp.setCommandMode(ctx, CommandModeInitiateControl)
-			}
+	case imgui.KeyF1:
+		if ctx.Keyboard.KeyControl() {
+			// Beaconator; handled elsewhere
+		} else if ctx.Keyboard.KeyShift() { // F13
+			sp.setCommandMode(ctx, CommandModeReleaseDeparture)
+		} else { // INIT CNTL
+			sp.setCommandMode(ctx, CommandModeInitiateControl)
+		}
 
-		case imgui.KeyF2:
-			if ctx.Keyboard.KeyControl() { // CNTR
-				ps.UseUserCenter = false
-			} else { // TRK RPOS
-				sp.setCommandMode(ctx, CommandModeTrackReposition)
-			}
+	case imgui.KeyF2:
+		if ctx.Keyboard.KeyControl() { // CNTR
+			ps.UseUserCenter = false
+		} else { // TRK RPOS
+			sp.setCommandMode(ctx, CommandModeTrackReposition)
+		}
 
-		case imgui.KeyF3:
-			if ctx.Keyboard.KeyControl() { // MAPS
-				sp.setCommandMode(ctx, CommandModeMaps)
-			} else { // TRK SUSP
-				sp.setCommandMode(ctx, CommandModeTrackSuspend)
-			}
+	case imgui.KeyF3:
+		if ctx.Keyboard.KeyControl() { // MAPS
+			sp.setCommandMode(ctx, CommandModeMaps)
+		} else { // TRK SUSP
+			sp.setCommandMode(ctx, CommandModeTrackSuspend)
+		}
 
-		case imgui.KeyF4:
-			if ctx.Keyboard.KeyControl() {
-				sp.setCommandMode(ctx, CommandModeWX)
-			} else if ctx.Keyboard.KeyShift() { // F16
-				sp.setCommandMode(ctx, CommandModeMacro)
-			} else {
-				sp.setCommandMode(ctx, CommandModeTerminateControl)
-			}
-
-		case imgui.KeyF5:
-			if ctx.Keyboard.KeyControl() {
-				sp.setCommandMode(ctx, CommandModeBrite)
-			} else {
-				sp.setCommandMode(ctx, CommandModeHandOff)
-			}
-
-		case imgui.KeyF6:
-			if ctx.Keyboard.KeyControl() && ps.DisplayDCB {
-				sp.setCommandMode(ctx, CommandModeLDR)
-			} else {
-				sp.setCommandMode(ctx, CommandModeFlightData)
-			}
-
-		case imgui.KeyF7:
-			if ctx.Keyboard.KeyControl() && ps.DisplayDCB {
-				sp.setCommandMode(ctx, CommandModeCharSize)
-			} else {
-				sp.setCommandMode(ctx, CommandModeMultiFunc)
-			}
-
-		case imgui.KeyF8:
-			if ctx.Keyboard.KeyControl() && ps.DisplayDCB {
-				sp.dcbShowAux = !sp.dcbShowAux
-			} else {
-				sp.setCommandMode(ctx, CommandModeFMA_TSAS)
-			}
-
-		case imgui.KeyF9:
-			if ctx.Keyboard.KeyControl() {
-				sp.resetInputState(ctx)
-				ps.DisplayDCB = !ps.DisplayDCB
-			} else {
-				sp.setCommandMode(ctx, CommandModeVFRPlan)
-			}
-
-		case imgui.KeyF10:
-			if ctx.Keyboard.KeyControl() && ps.DisplayDCB {
-				sp.setCommandMode(ctx, CommandModeRangeRings)
-			} else {
-				sp.setCommandMode(ctx, CommandModeIFDT)
-			}
-
-		case imgui.KeyF11:
-			if ctx.Keyboard.KeyControl() && ps.DisplayDCB {
-				sp.setCommandMode(ctx, CommandModeRange)
-			} else {
-				sp.setCommandMode(ctx, CommandModeCollisionAlert)
-			}
-
-		case imgui.KeyF12:
-			if ctx.Keyboard.KeyControl() && ps.DisplayDCB {
-				sp.setCommandMode(ctx, CommandModePref)
-			} else {
-				sp.setCommandMode(ctx, CommandModeRestrictionArea)
-			}
-
-		case imgui.KeyF13:
-			if ctx.Keyboard.KeyControl() && ps.DisplayDCB {
-				sp.setCommandMode(ctx, CommandModeSite)
-			} else {
-				sp.setCommandMode(ctx, CommandModeReleaseDeparture)
-			}
-
-		case imgui.KeyF14:
-			if ctx.Keyboard.KeyControl() && ps.DisplayDCB {
-				sp.setCommandMode(ctx, CommandModeSite)
-			}
-
-		case imgui.KeyF15:
-			sp.setCommandMode(ctx, CommandModeTargetGen)
-
-		case imgui.KeyF16:
+	case imgui.KeyF4:
+		if ctx.Keyboard.KeyControl() {
+			sp.setCommandMode(ctx, CommandModeWX)
+		} else if ctx.Keyboard.KeyShift() { // F16
 			sp.setCommandMode(ctx, CommandModeMacro)
+		} else {
+			sp.setCommandMode(ctx, CommandModeTerminateControl)
+		}
 
-		case imgui.KeyTab:
-			if imgui.IsKeyDown(imgui.KeyLeftShift) { // Check if LeftShift is pressed
-				sp.setCommandMode(ctx, CommandModeTargetGenLock)
-			} else {
-				sp.setCommandMode(ctx, CommandModeTargetGen)
-			}
+	case imgui.KeyF5:
+		if ctx.Keyboard.KeyControl() {
+			sp.setCommandMode(ctx, CommandModeBrite)
+		} else {
+			sp.setCommandMode(ctx, CommandModeHandOff)
+		}
 
-		case imgui.KeyUpArrow:
-			if sp.commandMode == CommandModeDrawWind && sp.atmosGrid != nil {
-				sp.windDrawAltitudeIndex++
-				sp.windDrawAltitudeIndex = min(sp.windDrawAltitudeIndex, sp.atmosGrid.Res[2]-1)
-			}
+	case imgui.KeyF6:
+		if ctx.Keyboard.KeyControl() && ps.DisplayDCB {
+			sp.setCommandMode(ctx, CommandModeLDR)
+		} else {
+			sp.setCommandMode(ctx, CommandModeFlightData)
+		}
 
-		case imgui.KeyDownArrow:
-			if sp.commandMode == CommandModeDrawWind && sp.atmosGrid != nil {
-				sp.windDrawAltitudeIndex--
-				sp.windDrawAltitudeIndex = max(sp.windDrawAltitudeIndex, sp.minWindDrawAltitudeIndex(ctx))
-			}
+	case imgui.KeyF7:
+		if ctx.Keyboard.KeyControl() && ps.DisplayDCB {
+			sp.setCommandMode(ctx, CommandModeCharSize)
+		} else {
+			sp.setCommandMode(ctx, CommandModeMultiFunc)
+		}
+
+	case imgui.KeyF8:
+		if ctx.Keyboard.KeyControl() && ps.DisplayDCB {
+			sp.dcbShowAux = !sp.dcbShowAux
+		} else {
+			sp.setCommandMode(ctx, CommandModeFMA_TSAS)
+		}
+
+	case imgui.KeyF9:
+		if ctx.Keyboard.KeyControl() {
+			sp.resetInputState(ctx)
+			ps.DisplayDCB = !ps.DisplayDCB
+		} else {
+			sp.setCommandMode(ctx, CommandModeVFRPlan)
+		}
+
+	case imgui.KeyF10:
+		if ctx.Keyboard.KeyControl() && ps.DisplayDCB {
+			sp.setCommandMode(ctx, CommandModeRangeRings)
+		} else {
+			sp.setCommandMode(ctx, CommandModeIFDT)
+		}
+
+	case imgui.KeyF11:
+		if ctx.Keyboard.KeyControl() && ps.DisplayDCB {
+			sp.setCommandMode(ctx, CommandModeRange)
+		} else {
+			sp.setCommandMode(ctx, CommandModeCollisionAlert)
+		}
+
+	case imgui.KeyF12:
+		if ctx.Keyboard.KeyControl() && ps.DisplayDCB {
+			sp.setCommandMode(ctx, CommandModePref)
+		} else {
+			sp.setCommandMode(ctx, CommandModeRestrictionArea)
+		}
+
+	case imgui.KeyF13:
+		if ctx.Keyboard.KeyControl() && ps.DisplayDCB {
+			sp.setCommandMode(ctx, CommandModeSite)
+		} else {
+			sp.setCommandMode(ctx, CommandModeReleaseDeparture)
+		}
+
+	case imgui.KeyF14:
+		if ctx.Keyboard.KeyControl() && ps.DisplayDCB {
+			sp.setCommandMode(ctx, CommandModeSite)
+		}
+
+	case imgui.KeyF15:
+		sp.setCommandMode(ctx, CommandModeTargetGen)
+
+	case imgui.KeyF16:
+		sp.setCommandMode(ctx, CommandModeMacro)
+
+	case imgui.KeyTab:
+		if imgui.IsKeyDown(imgui.KeyLeftShift) { // Check if LeftShift is pressed
+			sp.setCommandMode(ctx, CommandModeTargetGenLock)
+		} else {
+			sp.setCommandMode(ctx, CommandModeTargetGen)
+		}
+
+	case imgui.KeyUpArrow:
+		if sp.commandMode == CommandModeDrawWind && sp.atmosGrid != nil {
+			sp.windDrawAltitudeIndex++
+			sp.windDrawAltitudeIndex = min(sp.windDrawAltitudeIndex, sp.atmosGrid.Res[2]-1)
+		}
+
+	case imgui.KeyDownArrow:
+		if sp.commandMode == CommandModeDrawWind && sp.atmosGrid != nil {
+			sp.windDrawAltitudeIndex--
+			sp.windDrawAltitudeIndex = max(sp.windDrawAltitudeIndex, sp.minWindDrawAltitudeIndex(ctx))
 		}
 	}
 }

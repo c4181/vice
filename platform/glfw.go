@@ -11,6 +11,7 @@ package platform
 
 import (
 	"fmt"
+	"log/slog"
 	"runtime"
 	"slices"
 	"strconv"
@@ -54,6 +55,8 @@ type glfwPlatform struct {
 	mouseDeltaStartPos     [2]float32
 	mouseDeltaWindowCenter [2]float32
 	mouseDelta             [2]float32
+
+	vcsStarsKeyboard *glfw.Joystick
 
 	audioRecorder *AudioRecorder
 	appFocused    bool
@@ -143,13 +146,14 @@ func New(config *Config, lg *log.Logger) (Platform, error) {
 	window.MakeContextCurrent()
 
 	platform := &glfwPlatform{
-		config:        config,
-		imguiIO:       io,
-		window:        window,
-		multisample:   config.EnableMSAA,
-		heldFKeys:     make(map[imgui.Key]any),
-		audioRecorder: NewAudioRecorder(lg),
-		appFocused:    true,
+		config:           config,
+		imguiIO:          io,
+		window:           window,
+		multisample:      config.EnableMSAA,
+		heldFKeys:        make(map[imgui.Key]any),
+		audioRecorder:    NewAudioRecorder(lg),
+		appFocused:       true,
+		vcsStarsKeyboard: findVcsStarsKeyboard(),
 	}
 	platform.installCallbacks()
 	platform.createMouseCursors()
@@ -590,6 +594,18 @@ func (g *glfwPlatform) createMouseCursors() {
 	g.mouseCursors[imgui.MouseCursorResizeNWSE] = glfw.CreateStandardCursor(glfw.ArrowCursor) // FIXME: GLFW doesn't have this.
 	g.mouseCursors[imgui.MouseCursorHand] = glfw.CreateStandardCursor(glfw.HandCursor)
 
+}
+
+func findVcsStarsKeyboard() *glfw.Joystick {
+	for js := glfw.Joystick1; js <= glfw.JoystickLast; js++ {
+		slog.Info(js.GetName())
+		slog.Info(js.GetGUID())
+		if js.GetName() == "Virtual Controller Supply STARS Keyboard" {
+			return &js
+		}
+	}
+
+	return nil
 }
 
 func (g *glfwPlatform) SetWindowTitle(text string) {

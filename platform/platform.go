@@ -111,6 +111,10 @@ type Platform interface {
 	// and which keys are currently down.
 	GetKeyboard() *KeyboardState
 
+	// GetVcsStarsKeyboard returns a KeyboardState object that stores keyboard input
+	// and which keys are currently down.
+	GetVcsStarsKeyboard() *KeyboardState
+
 	// Cursor overrides. LoadCursorFromFile parses a .cur file and creates a
 	// cursor handle that can be set as the active cursor via SetCursorOverride.
 	LoadCursorFromFile(path string) (*Cursor, error)
